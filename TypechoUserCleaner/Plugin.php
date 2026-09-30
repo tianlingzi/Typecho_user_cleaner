@@ -22,13 +22,11 @@ if (!defined('__TYPECHO_ROOT_DIR__')) {
 
 /**
  * 新用户邮箱验证。
- *
- * 注册后生成一次性验证链接并通过 SMTP 发送，在有效期内完成验证后
- * email_verified 置为 1；未验证用户被管理员删除时自动发送提醒邮件。
+ *先注册后验证，用户管理页显示用户验证状态；未验证用户被管理员删除时自动发送提醒邮件。
  *
  * @package TypechoUserCleaner
  * @author tianlingzi
- * @version 1.1.0
+ * @version 1.1.1
  * @link https://www.tianlingzi.top
  */
 class Plugin implements PluginInterface
