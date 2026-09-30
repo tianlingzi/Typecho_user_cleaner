@@ -31,6 +31,8 @@ class Action extends Base implements ActionInterface
             $this->verify();
         } elseif ('resend' === $do) {
             $this->resend();
+        } elseif ('batchresend' === $do) {
+            $this->batchResend();
         } else {
             throw new WidgetException(_t('请求的地址不存在'), 404);
         }
@@ -130,6 +132,74 @@ class Action extends Base implements ActionInterface
         }
 
         $this->response->redirect(Common::url('profile.php', $this->options->adminUrl));
+    }
+
+    /**
+     * 管理员批量重发验证邮件（插件设置页入口）
+     */
+    protected function batchResend()
+    {
+        $this->security->protect();
+        $this->user->pass('administrator');
+
+        $db = $this->db;
+
+        // 最早注册的主用户始终视为已验证，与核心保护规则一致
+        $root = $db->fetchRow(
+            $db->select('uid')->from('table.users')->order('uid', 'ASC')->limit(1)
+        );
+        $rootUid = empty($root) ? 0 : (int) $root['uid'];
+
+        $users = $db->fetchAll(
+            $db->select('uid', 'name', 'screenName', 'mail')
+                ->from('table.users')
+                ->where('email_verified = ?', 0)
+        );
+
+        $targets = [];
+        if (is_array($users)) {
+            foreach ($users as $u) {
+                if ((int) $u['uid'] === $rootUid || empty($u['mail'])) {
+                    continue;
+                }
+                $targets[] = $u;
+            }
+        }
+
+        if (empty($targets)) {
+            Notice::alloc()->set(_t('没有需要重发的未验证用户。'), 'notice');
+        } else {
+            $success = 0;
+            $failed = 0;
+
+            foreach ($targets as $u) {
+                try {
+                    Plugin::issueTokenAndMail(
+                        (int) $u['uid'],
+                        (string) $u['mail'],
+                        $u['screenName'] ?: $u['name']
+                    );
+                    $success++;
+                } catch (\Throwable $e) {
+                    $failed++;
+                    error_log('[TypechoUserCleaner] batchResend uid=' . $u['uid'] . ': ' . $e->getMessage());
+                }
+            }
+
+            if ($failed > 0) {
+                Notice::alloc()->set(
+                    _t('批量重发完成：成功 %d 位，失败 %d 位，请检查 SMTP 配置后重试。', $success, $failed),
+                    'notice'
+                );
+            } else {
+                Notice::alloc()->set(
+                    _t('批量重发完成：已成功为 %d 位用户重新发送验证邮件。', $success),
+                    'success'
+                );
+            }
+        }
+
+        $this->response->goBack(null, $this->options->adminUrl);
     }
 
     /**

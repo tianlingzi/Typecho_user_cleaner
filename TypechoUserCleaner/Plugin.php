@@ -26,7 +26,7 @@ if (!defined('__TYPECHO_ROOT_DIR__')) {
  *
  * @package TypechoUserCleaner
  * @author tianlingzi
- * @version 1.1.1
+ * @version 1.2.0
  * @link https://www.tianlingzi.top
  */
 class Plugin implements PluginInterface
@@ -156,6 +156,35 @@ class Plugin implements PluginInterface
         $body->input->setAttribute('class', 'w-90');
         $body->input->setAttribute('rows', '10');
         $form->addInput($body);
+
+        // 批量重发验证邮件（管理员操作入口，纯展示元素不参与配置保存）
+        try {
+            $db = Db::get();
+            $unverified = $db->fetchAll(
+                $db->select('uid')->from('table.users')->where('email_verified = ?', 0)
+            );
+            $count = is_array($unverified) ? count($unverified) : 0;
+
+            $batchUrl = Security::alloc()->getIndex(
+                'action/' . self::ACTION_NAME . '?do=batchresend'
+            );
+
+            $html = '<p>'
+                . _t('当前共有 <strong>%d</strong> 位未验证用户。', $count)
+                . '</p>'
+                . '<p><a class="btn btn-s primary" href="' . htmlspecialchars($batchUrl) . '"'
+                . ' onclick="return confirm(\'' . _t('确定要为所有未验证用户重新发送验证邮件吗？') . '\')">'
+                . _t('批量重发验证邮件') . '</a></p>'
+                . '<p class="description">'
+                . _t('将为每位未验证用户重新生成验证链接并发送邮件，旧链接自动作废。')
+                . '</p>';
+
+            $element = new StatusElement('tuc_batch_resend', null, null, _t('批量重发验证邮件'));
+            $element->description($html);
+            $form->addItem($element);
+        } catch (\Throwable $e) {
+            // 插件尚未激活（无表）等场景直接跳过，不影响配置面板
+        }
     }
 
     /**
