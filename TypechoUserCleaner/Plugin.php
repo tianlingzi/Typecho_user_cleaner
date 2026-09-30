@@ -28,7 +28,7 @@ if (!defined('__TYPECHO_ROOT_DIR__')) {
  *
  * @package TypechoUserCleaner
  * @author tianlingzi
- * @version 1.0.0
+ * @version 1.1.0
  * @link https://www.tianlingzi.top
  */
 class Plugin implements PluginInterface
@@ -254,8 +254,18 @@ class Plugin implements PluginInterface
                 (string) $register->mail,
                 $register->screenName ?: $register->name
             );
+
+            // 用独立 cookie 传递提醒，避开 Register 后续对 __typecho_notice 的覆盖
+            \Typecho\Cookie::set('__tuc_flash', json_encode([
+                'msg'  => _t('验证链接已发送至您的邮箱，请在规定时间内完成验证。'),
+                'type' => 'success',
+            ]));
         } catch (\Throwable $e) {
             error_log('[TypechoUserCleaner] onFinishRegister: ' . $e->getMessage());
+            \Typecho\Cookie::set('__tuc_flash', json_encode([
+                'msg'  => _t('验证邮件发送失败，请稍后在个人设置中重新发送验证邮件。'),
+                'type' => 'notice',
+            ]));
         }
     }
 
@@ -395,6 +405,9 @@ class Plugin implements PluginInterface
      */
     public static function adminFooter()
     {
+        // 注册完成后的邮箱验证提醒（注册请求 redirect 到 adminUrl 后由本钩子捕获）
+        self::renderFlashNotice();
+
         try {
             $script = isset($_SERVER['SCRIPT_NAME']) ? basename($_SERVER['SCRIPT_NAME']) : '';
             if ('manage-users.php' !== $script) {
@@ -438,6 +451,45 @@ tbody.querySelectorAll('tr[id^="user-"]').forEach(function(tr){
 });
 })();</script>
 JS;
+    }
+
+    /**
+     * 渲染注册后的一次性提醒横幅（基于 __tuc_flash cookie）
+     */
+    private static function renderFlashNotice()
+    {
+        $flash = \Typecho\Cookie::get('__tuc_flash');
+        if (empty($flash)) {
+            return;
+        }
+
+        // 读后即删，确保只展示一次
+        \Typecho\Cookie::delete('__tuc_flash');
+
+        $data = json_decode($flash, true);
+        if (empty($data['msg'])) {
+            return;
+        }
+
+        $success = ($data['type'] ?? '') === 'success';
+        $bg = $success ? '#e6f4ea' : '#fdecea';
+        $fg = $success ? '#1e7e34' : '#b32d2e';
+        $bd = $success ? '#b7dfc1' : '#f5c6c6';
+
+        $payload = json_encode([
+            'msg'   => (string) $data['msg'],
+            'style' => 'position:fixed;top:10px;left:50%;transform:translateX(-50%);'
+                . 'z-index:99999;min-width:300px;max-width:80%;padding:12px 20px;'
+                . 'border-radius:4px;box-shadow:0 2px 8px rgba(0,0,0,.2);font-size:14px;'
+                . 'background:' . $bg . ';color:' . $fg . ';border:1px solid ' . $bd . ';text-align:center;',
+        ]);
+
+        echo '<script>(function(){var p=' . $payload . ';var d=document.createElement("div");'
+            . 'd.setAttribute("style",p.style);d.textContent=p.msg;'
+            . 'function add(){document.body?document.body.appendChild(d):setTimeout(add,50);}add();'
+            . 'setTimeout(function(){d.style.transition="opacity .5s";d.style.opacity="0";'
+            . 'setTimeout(function(){d.parentNode&&d.parentNode.removeChild(d);},500);},6000);})();</script>'
+            . "\n";
     }
 
     /**
